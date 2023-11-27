@@ -17,6 +17,7 @@
 #define SMB_CMD_CFG(b)                  (0x9C + 4*(b))
     #define SMB_CKOVRD                  (1 << 29)
     #define SMB_CMD_TRIGGER             (1 << 19)
+    #define SMB_WORD_ACCESS             (1 << 17)
     #define SMB_WRT                     (1 << 15)
     #define SMB_SA                      (1 <<  8)
     #define SMB_SA_SHIFT                8
@@ -28,7 +29,9 @@
     #define SMB_BUSY                    (1 <<  0)
 #define SMB_DATA_CFG(b)                 (0xB4 + 4*(b))
     #define SMB_WDATA_SHIFT             16
-    #define SMB_RDATA_MASK              0xFFFF
+    #define SMB_RDATA_MASK_BYTE         0x00FF
+    #define SMB_RDATA_MASK_WORD_MSB     0xFF00
+    #define SMB_RDATA_MASK_WORD_LSB     0x00FF
 
 struct imc_priv {
     struct pci_dev *pci_dev;
@@ -39,7 +42,8 @@ struct imc_priv {
 static u32 pcu_smb_func(struct i2c_adapter *adapter)
 {
     return I2C_FUNC_SMBUS_BYTE
-         | I2C_FUNC_SMBUS_BYTE_DATA;
+         | I2C_FUNC_SMBUS_BYTE_DATA
+         | I2C_FUNC_SMBUS_WORD_DATA;
 }
 
 static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
@@ -55,18 +59,24 @@ static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
         : 2);
 
     if (read_write == I2C_SMBUS_WRITE) {
-        if (address != 0x27 && address != 0x36 && address != 0x37) {
+        if (0x50 <= address && address <= 0x57) {
             return -EOPNOTSUPP;
         }
         cmd |= SMB_WRT;
         if (size == I2C_SMBUS_BYTE_DATA) {
             val = data->byte << SMB_WDATA_SHIFT;
             pci_write_config_dword(priv->pci_dev, SMB_DATA_CFG(bus), val);
+        } else if (size == I2C_SMBUS_WORD_DATA) {
+            val = ((data->word & 0xFF00) >> 8 | (data->word & 0x00FF) << 8) << SMB_WDATA_SHIFT;
+            pci_write_config_dword(priv->pci_dev, SMB_DATA_CFG(bus), val);
         }
     }
 
     cmd |= SMB_CKOVRD;
     cmd |= SMB_CMD_TRIGGER;
+    if (size == I2C_SMBUS_WORD_DATA) {
+        cmd |= SMB_WORD_ACCESS;
+    }
     cmd |= (address << SMB_SA_SHIFT) & SMB_SA_MASK;
     cmd |= command;
     pci_write_config_dword(priv->pci_dev, SMB_CMD_CFG(bus), cmd);
@@ -92,7 +102,10 @@ static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
     } else if (read_write == I2C_SMBUS_READ) {
         if (size == I2C_SMBUS_BYTE_DATA) {
             pci_read_config_dword(priv->pci_dev, SMB_DATA_CFG(bus), &val);
-            data->byte = val & SMB_RDATA_MASK;
+            data->byte = val & SMB_RDATA_MASK_BYTE;
+        } else if (size == I2C_SMBUS_WORD_DATA) {
+            pci_read_config_dword(priv->pci_dev, SMB_DATA_CFG(bus), &val);
+            data->word = (val & SMB_RDATA_MASK_WORD_MSB) >> 8 | (val & SMB_RDATA_MASK_WORD_LSB) << 8;
         }
         return (status & SMB_RDO ? 0 : -EIO);
     }
