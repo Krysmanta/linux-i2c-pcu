@@ -1,0 +1,23 @@
+Source: i2c-pcu
+Maintainer: Milan Cermak <krysmanta@post.cz>
+Section: misc
+Priority: optional
+Build-Depends: debhelper-compat (= 13),
+               dkms
+Standards-Version: 4.5.0
+Rules-Requires-Root: no
+
+Package: i2c-pcu-dkms
+Architecture: all
+Section: kernel
+Depends: ${misc:Depends},
+         dkms
+Description: i2c-pcu driver (DKMS)
+ Intel SkyLake-X CPUs contain internal SMBus, which is usually connected
+ to RAM modules and can be used to control RGB lights.
+ This driver provides access to the bus, which than can be accessed by
+ common i2c tools.
+ .
+ This package provides the source code for the i2c-pcu kernel module to be
+ build with dkms. Kernel sources or headers are required to compile this
+ module.

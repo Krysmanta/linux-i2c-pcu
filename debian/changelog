@@ -1,0 +1,17 @@
+i2c-pcu (0.2.0-1) unstable; urgency=low
+
+  * Support for WORD_DATA.
+
+ -- Milan Cermak <krysmanta@post.cz>  Tue, 28 Nov 2023 19:56:28 +0100
+
+i2c-pcu (0.1.1-1) unstable; urgency=low
+
+  * Unlimited access to all addresses.
+
+ -- Milan Cermak <krysmanta@post.cz>  Sun, 26 Nov 2023 18:10:59 +0100
+
+i2c-pcu (0.1.0-1) unstable; urgency=low
+
+  * Initial revision of packaging.
+
+ -- Milan Cermak <krysmanta@post.cz>  Sun, 26 Nov 2023 09:43:38 +0100
