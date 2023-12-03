@@ -43,10 +43,11 @@ static u32 pcu_smb_func(struct i2c_adapter *adapter)
 {
     return I2C_FUNC_SMBUS_BYTE
          | I2C_FUNC_SMBUS_BYTE_DATA
-         | I2C_FUNC_SMBUS_WORD_DATA;
+         | I2C_FUNC_SMBUS_WORD_DATA
+         | I2C_FUNC_SMBUS_BLOCK_DATA;
 }
 
-static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
+static s32 pcu_smb_process(struct i2c_adapter *adapter, u16 address,
         unsigned short flags, char read_write, u8 command,
         int size, union i2c_smbus_data *data)
 {
@@ -110,6 +111,41 @@ static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
         return (status & SMB_RDO ? 0 : -EIO);
     }
     return 0;
+}
+
+
+static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
+        unsigned short flags, char read_write, u8 command,
+        int size, union i2c_smbus_data *data)
+{
+    union i2c_smbus_data val;
+    int ret;
+    int i;
+
+    if (size == I2C_SMBUS_BLOCK_DATA) {
+        if (read_write == I2C_SMBUS_READ) {
+            for (i = 0; i < 32; i++) {
+                ret = pcu_smb_process(adapter, address, flags, read_write, command+i, I2C_SMBUS_BYTE_DATA, &val);
+                if (ret == 0) {
+                    data->block[0] ++;
+                    data->block[1+i] = val.byte;
+                } else {
+                    break;
+                }
+            }
+            return i > 0 ? 0 : -EIO;
+        } else if (read_write == I2C_SMBUS_WRITE) {
+            for (i = 0; i < 32 && i < data->block[0]; i++) {
+                val.byte = data->block[1+i];
+                ret = pcu_smb_process(adapter, address, flags, read_write, command+i, I2C_SMBUS_BYTE_DATA, &val);
+                if (ret != 0) {
+                    break;
+                }
+            }
+            return i > 0 ? 0 : -EIO;
+        }
+    }
+    return pcu_smb_process(adapter, address, flags, read_write, command, size, data);
 }
 
 static const struct i2c_algorithm pcu_smb_smbus_algorithm = {
