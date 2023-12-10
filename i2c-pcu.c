@@ -44,7 +44,8 @@ static u32 pcu_smb_func(struct i2c_adapter *adapter)
     return I2C_FUNC_SMBUS_QUICK
          | I2C_FUNC_SMBUS_BYTE
          | I2C_FUNC_SMBUS_BYTE_DATA
-         | I2C_FUNC_SMBUS_WORD_DATA;
+         | I2C_FUNC_SMBUS_WORD_DATA
+         | I2C_FUNC_SMBUS_BLOCK_DATA;
 }
 
 static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
@@ -77,6 +78,15 @@ static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
             val = ((data->word & 0xFF00) >> 8 | (data->word & 0x00FF) << 8) << SMB_WDATA_SHIFT;
             pci_write_config_dword(priv->pci_dev, SMB_DATA_CFG(bus), val);
             break;
+        case I2C_SMBUS_BLOCK_DATA:
+            len = data->block[0];
+            if (len == 0 || len > I2C_SMBUS_BLOCK_MAX)
+                return -EINVAL;
+
+            val = len << SMB_WDATA_SHIFT;
+            pci_write_config_dword(priv->pci_dev, SMB_DATA_CFG(bus), val);
+            cnt = 1;
+            break;
         default:
             return -EOPNOTSUPP;
         }
@@ -92,17 +102,28 @@ static s32 pcu_smb_smbus_xfer(struct i2c_adapter *adapter, u16 address,
     pci_write_config_dword(priv->pci_dev, SMB_CMD_CFG(bus), cmd);
 
     do {
-        ret = pci_read_config_dword(priv->pci_dev, SMB_STATUS_CFG(bus), &status);
-        if (ret) {
+        do {
+            ret = pci_read_config_dword(priv->pci_dev, SMB_STATUS_CFG(bus), &status);
+            if (ret) {
+                return -EIO;
+            }
+            usleep_range(250, 500);
+        } while (status & SMB_BUSY);
+
+        if (status & SMB_SBE) {
+            // dev_warn(&priv->pci_dev->dev, "SMB_SBE\n");
             return -EIO;
         }
-        usleep_range(250, 500);
-    } while (status & SMB_BUSY);
 
-    if (status & SMB_SBE) {
-        // dev_warn(&priv->pci_dev->dev, "SMB_SBE\n");
-        return -EIO;
-    }
+        if (read_write != I2C_SMBUS_WRITE || size != I2C_SMBUS_BLOCK_DATA || cnt >= len)
+            break;
+
+        /* Send next byte from the block */
+        val = data->block[cnt] << SMB_WDATA_SHIFT;
+        pci_write_config_dword(priv->pci_dev, SMB_DATA_CFG(bus), val);
+        cnt++;
+    } while (size == I2C_SMBUS_BLOCK_DATA && cnt <= len);
+
 
     if (read_write == I2C_SMBUS_WRITE) {
         return (status & SMB_WOD ? 0 : -EIO);
